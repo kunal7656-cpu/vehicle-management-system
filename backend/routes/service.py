@@ -43,20 +43,27 @@ def create_service_record(
             detail="Vehicle not found."
         )
 
-    if record_data.odometer_km < vehicle.current_odometer_km:
-        raise HTTPException(
-            status_code=400,
-            detail="Service odometer cannot be less than the vehicle's current odometer."
-        )
-
+    # Create the service record, including historical records.
     new_record = ServiceRecord(**record_data.model_dump())
-
     db.add(new_record)
-    vehicle.current_odometer_km = record_data.odometer_km
-    vehicle.last_service_date = record_data.service_date
 
-    db.commit()
-    db.refresh(new_record)
+    # Update the odometer only if the new reading is higher.
+    if record_data.odometer_km > vehicle.current_odometer_km:
+        vehicle.current_odometer_km = record_data.odometer_km
+
+    # Update the last service date only if this record is newer.
+    if (
+        vehicle.last_service_date is None
+        or record_data.service_date > vehicle.last_service_date
+    ):
+        vehicle.last_service_date = record_data.service_date
+
+    try:
+        db.commit()
+        db.refresh(new_record)
+    except Exception:
+        db.rollback()
+        raise
 
     return {
         "message": "Service record created successfully",
