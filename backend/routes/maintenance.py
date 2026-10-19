@@ -1,4 +1,4 @@
- 
+
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -117,29 +117,43 @@ def check_vehicle_maintenance(
             .first()
         )
 
-        last_service_km = (
-            last_service.odometer_km
-            if last_service else None
-        )
-
-        last_service_date = (
-            last_service.service_date
-            if last_service else None
-        )
+        # No service history means the due status cannot
+        # be reliably calculated from the last service.
+        if last_service is None:
+            results.append({
+                "rule_id": rule.id,
+                "component_name": rule.component_name,
+                "service_task": rule.service_task,
+                "service_history_available": False,
+                "maintenance_due": None,
+                "maintenance_status": "History unavailable",
+                "reason": (
+                    "No matching service record found. "
+                    "Add historical service details to calculate "
+                    "the maintenance due status."
+                ),
+                "next_due_km": None,
+                "next_due_date": None
+            })
+            continue
 
         result = check_maintenance_due(
             current_odometer_km=vehicle.current_odometer_km,
-            last_service_odometer_km=last_service_km,
-            last_service_date=last_service_date,
+            last_service_odometer_km=last_service.odometer_km,
+            last_service_date=last_service.service_date,
             interval_km=rule.interval_km or 0,
             interval_months=rule.interval_months or 0,
             today=today
         )
 
+        is_due = result.get("maintenance_due", False)
+
         results.append({
             "rule_id": rule.id,
             "component_name": rule.component_name,
             "service_task": rule.service_task,
+            "service_history_available": True,
+            "maintenance_status": "Due" if is_due else "Not due",
             **result
         })
 
